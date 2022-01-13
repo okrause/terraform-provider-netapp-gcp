@@ -85,6 +85,8 @@ The following arguments are supported:
 * `unix_permissions` - (Optional) UNIX permissions for NFS volume accepted in octal 4 digit format. First digit selects the set user ID(4), set group ID (2) and sticky (1) attributes. Second digit selects permission for the owner of the file: read (4), write (2) and execute (1). Third selects permissions for other users in the same group. the fourth for other users not in the group. "0755" - gives read/write/execute permissions to owner and read/execute to group and other users.
 * `volume_path` - (Optional) The name of the volume path for volume.
 * `zone` - (Optional) The desired zone for the resource. If storage_class is set to 'software', zone is required.
+* `smb_share_settings` - (Optional) List of SMB share properties. Must be zero or more of "encrypt_data", "browsable", "changenotify", "non_browsable", "oplocks", "showsnapshot", "show_previous_versions", "continuously_available", "access_based_enumeration".
+* `billing_label` - (Optional) Key-value pair for billing labels.
 
 The `snapshot_policy` block supports:
 * `daily_schedule` - (Optional) If enabled, make a snapshot every day. Defaults to midnight.
@@ -128,6 +130,10 @@ The `nfsv3` block supports:
 
 The `nfsv4` block supports:
 * `checked` - (Optional) Enable NFSv4 protocol.
+
+The `billing_label` block supports:
+* `key` - (Required) Must be a minimum length of 1 character and a maximum length of 63 characters, and cannot be empty. Can contain only lowercase letters, numeric characters, underscores, and dashes. All characters must use UTF-8 encoding, and international characters are allowed. Must start with a lowercase letter or international character.
+* `value` - (Required) Can be empty, and have a maximum length of 63 characters. Can contain only lowercase letters, numeric characters, underscores, and dashes. All characters must use UTF-8 encoding, and international characters are allowed.
 
 ## Attributes Reference
 

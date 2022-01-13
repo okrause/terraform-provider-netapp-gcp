@@ -320,9 +320,33 @@ func resourceGCPVolume() *schema.Resource {
 				Optional: true,
 				Default:  true,
 			},
+			"smb_share_settings": {
+				Type:     schema.TypeSet,
+				Optional: true,
+				Elem: &schema.Schema{
+					Type:         schema.TypeString,
+					ValidateFunc: validation.StringInSlice([]string{"encrypt_data", "browsable", "changenotify", "non_browsable", "oplocks", "showsnapshot", "show_previous_versions", "continuously_available", "access_based_enumeration"}, true),
+				},
+			},
 			"unix_permissions": {
 				Type:     schema.TypeString,
 				Optional: true,
+			},
+			"billing_label": {
+				Type:     schema.TypeSet,
+				Optional: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"key": {
+							Type:     schema.TypeString,
+							Required: true,
+						},
+						"value": {
+							Type:     schema.TypeString,
+							Required: true,
+						},
+					},
+				},
 			},
 		},
 	}
@@ -424,6 +448,23 @@ func resourceGCPVolumeCreate(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	volume.SnapshotDirectory = d.Get("snapshot_directory").(bool)
+
+	if v, ok := d.GetOk("smb_share_settings"); ok {
+		for _, setting := range v.(*schema.Set).List() {
+			volume.SmbShareSettings = append(volume.SmbShareSettings, setting.(string))
+		}
+	}
+
+	if v, ok := d.GetOk("billing_label"); ok {
+		values := v.(*schema.Set)
+		if values.Len() > 0 {
+			labels := make([]billingLabel, 0, values.Len())
+			for _, v := range expandBillingLabel(values) {
+				labels = append(labels, v)
+			}
+			volume.BillingLabels = labels
+		}
+	}
 
 	var res createVolumeResult
 	var err error
@@ -555,8 +596,8 @@ func resourceGCPVolumeRead(d *schema.ResourceData, meta interface{}) error {
 	if err != nil {
 		return err
 	}
-
-	waitSeconds := 300
+	// Wait for 20 minutes if the volume is still in operation.
+	waitSeconds := 1200
 	for waitSeconds > 0 && (res.LifeCycleState == "creating" || res.LifeCycleState == "deleting" || res.LifeCycleState == "updating") {
 		time.Sleep(20)
 		res, err = client.getVolumeByID(volumeRequest{Region: volume.Region, VolumeID: id})
@@ -676,12 +717,38 @@ func resourceGCPVolumeRead(d *schema.ResourceData, meta interface{}) error {
 	if err := d.Set("snapshot_directory", res.SnapshotDirectory); err != nil {
 		return fmt.Errorf("Error reading volume snapshot_directory: %s", err)
 	}
+	if v, ok := d.GetOk("smb_share_settings"); ok {
+		// There are a few default values in API, which means the API sets these values even they aren't specified in creation.
+		// The default values: "oplocks", "changenotify", "showsnapshot", "show_previous_versions", "browsable".
+		// Also note: If "continuously_available" is specified and "changenotify" is not, changenotify won't be set.
+		// but it doesn't mean they are mutually exclusive. "changenotify" can still be specified.
+		// "browserable" and "non_browserable" are mutually exclusive.
+		// It's reasonable that Users only care about the smb_share_settings they specifed. The not specified smb_share_settings
+		// are ignored no matter enabled or not.
+		// Compare the smb_share_settings in local config and the API response, then set the intersection of the two lists.
+		currentSmbSettings := make([]string, 0)
+		for _, localSmbSetting := range v.(*schema.Set).List() {
+			for _, apiSmbSetting := range res.SmbShareSettings {
+				if localSmbSetting.(string) == apiSmbSetting {
+					currentSmbSettings = append(currentSmbSettings, apiSmbSetting)
+				}
+			}
+		}
+		if err := d.Set("smb_share_settings", currentSmbSettings); err != nil {
+			return fmt.Errorf("Error reading volume smb_share_settings: %s", err)
+		}
+	}
 	if _, ok := d.GetOk("unix_permissions"); ok {
 		if err := d.Set("unix_permissions", res.UnixPermissions); err != nil {
 			return fmt.Errorf("Error reading volume unix_permissions: %S", err)
 		}
 	}
-
+	if _, ok := d.GetOk("billing_label"); ok {
+		labels := flattenBillingLabel(res.BillingLabels)
+		if err := d.Set("billing_label", labels); err != nil {
+			return fmt.Errorf("Error reading volume billing_label: %s", err)
+		}
+	}
 	return nil
 }
 
@@ -824,9 +891,24 @@ func resourceGCPVolumeUpdate(d *schema.ResourceData, meta interface{}) error {
 		makechange = 1
 	}
 
+	if d.HasChange("smb_share_settings") {
+		if v, ok := d.GetOk("smb_share_settings"); ok {
+			for _, setting := range v.(*schema.Set).List() {
+				volume.SmbShareSettings = append(volume.SmbShareSettings, setting.(string))
+			}
+		}
+		makechange = 1
+	}
+
 	if d.HasChange("unix_permissions") {
 		makechange = 1
 		volume.UnixPermissions = d.Get("unix_permissions").(string)
+	}
+
+	if d.HasChange("billing_label") {
+		makechange = 1
+		labels := d.Get("billing_label").(*schema.Set)
+		volume.BillingLabels = expandBillingLabel(labels)
 	}
 
 	if makechange == 1 {
