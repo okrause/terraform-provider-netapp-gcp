@@ -1,3 +1,13 @@
+## 22.1.2
+ENHANCEMENTS:
+
+* resource/volume: add pool_id option.
+* Support service account principal name when using service account impersonation.
+
+BUG FIXES:
+
+* Fix use default credentials when providing project ID. 
+
 ## 22.1.1
 ENHANCEMENTS:
 
